@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tabula", "Tabula\Tabula.csproj", "{2DCD27E2-BAF2-4D6C-A44A-C0BFCF61DAF2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tabula.Tests", "Tabula.Tests\Tabula.Tests.csproj", "{D8D412F4-5216-4041-8975-088C92C70DC6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tabula.Benchmarks", "Tabula.Benchmarks\Tabula.Benchmarks.csproj", "{64839B8D-5B12-407C-B3A5-DB886A730E1A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2DCD27E2-BAF2-4D6C-A44A-C0BFCF61DAF2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2DCD27E2-BAF2-4D6C-A44A-C0BFCF61DAF2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2DCD27E2-BAF2-4D6C-A44A-C0BFCF61DAF2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2DCD27E2-BAF2-4D6C-A44A-C0BFCF61DAF2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D8D412F4-5216-4041-8975-088C92C70DC6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D8D412F4-5216-4041-8975-088C92C70DC6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D8D412F4-5216-4041-8975-088C92C70DC6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D8D412F4-5216-4041-8975-088C92C70DC6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{64839B8D-5B12-407C-B3A5-DB886A730E1A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{64839B8D-5B12-407C-B3A5-DB886A730E1A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{64839B8D-5B12-407C-B3A5-DB886A730E1A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{64839B8D-5B12-407C-B3A5-DB886A730E1A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
