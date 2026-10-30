@@ -1,0 +1,295 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Xml;
+
+using Tabula.CellAddressing;
+using Tabula.Cells;
+using Tabula.Types;
+
+
+namespace Tabula.IO;
+
+/// <summary>
+/// Class XMLSSIOFormat can read XMLSS (Excel 2003 XML format) workbook files.
+/// </summary>
+internal sealed class XMLSSIOFormat : IOFormat
+{
+    private const int _minRows = 10, _minCols = 10; // Must be positive
+
+    private readonly Formats _formats = new Formats();
+
+    public XMLSSIOFormat()
+        : base("xml", "XMLSS")
+    {
+        _formats.RefFmt = Formats.RefType.R1C1;
+    }
+
+    private int ParseRow(XmlReader rowreader,
+                         Workbook wb,
+                         Sheet sheet,
+                         int row,
+                         IDictionary<string, Cell> cellParsingCache)
+    {
+        /* XMLSS has origin at (1,1) = (A,1) whereas Tabula internal 
+		* representation has origin at (0,0) = (A,1).  Hence the col 
+		* and row indices are 1 higher in this method.
+		*/
+        int cellCount = 0;
+        int col = 0;
+        XmlReader cellreader = rowreader.ReadSubtree();
+        while (cellreader.ReadToFollowing("Cell"))
+        {
+            string colindexstr = cellreader.GetAttribute("ss:Index");
+            string arrayrangestr = cellreader.GetAttribute("ss:ArrayRange");
+            string formulastr = cellreader.GetAttribute("ss:Formula");
+            string typestr = "";
+            string dataval = "";
+
+            if (colindexstr != null)
+            {
+                if (!int.TryParse(colindexstr, out col))
+                {
+                    col = 0; // Looks wrong, should be 1?
+                }
+            }
+            else
+            {
+                col++;
+            }
+
+            cellCount++;
+            // If an array result occupies cells, do not overwrite
+            // the formula with precomputed and cached data from 
+            // the XMLSS file. Instead skip the parsing and sheet update.
+            if (sheet[col - 1, row - 1] != null)
+            {
+                continue;
+            }
+
+            using (XmlReader datareader = cellreader.ReadSubtree())
+            {
+                if (datareader.ReadToFollowing("Data"))
+                {
+                    typestr = datareader.GetAttribute("ss:Type");
+                    datareader.MoveToContent();
+                    dataval = datareader.ReadElementContentAsString();
+                }
+            }
+
+            string cellString;
+            if (formulastr != null)
+            {
+                cellString = formulastr;
+            }
+            else
+            {
+                // Anything else than formulas are values.
+                // If XMLSS tells us it is a String we believe it
+                if (typestr == "String")
+                {
+                    dataval = "'" + dataval;
+                }
+                cellString = dataval;
+            }
+
+            // Skip blank cells
+            if (cellString == "")
+            {
+                continue;
+            }
+
+            Cell cell;
+            if (cellParsingCache.TryGetValue(cellString, out cell))
+            {
+                // Copy the cell (both for mutable Formula cells and for cell-specific 
+                // metadata) and but share any sharable contents.
+                cell = cell.CloneCell(col - 1, row - 1);
+            }
+            else
+            {
+                // Cell contents not seen before: scan, parse and cache
+                cell = Cell.Parse(cellString, wb, col - 1, row - 1, ReferenceStyle.R1C1);
+                if (cell == null)
+                {
+                    Console.WriteLine("BAD: Null cell from \"{0}\"", cellString);
+                }
+                else
+                {
+                    cellParsingCache.Add(cellString, cell);
+                }
+            }
+
+            if (arrayrangestr != null && cell is Formula)
+            { // Array formula
+                string[] split = arrayrangestr.Split(":".ToCharArray());
+
+                RARef raref1 = new RARef(split[0]);
+                RARef raref2;
+                if (split.Length == 1)
+                {
+                    // FIXME: single cell result, but still array
+                    raref2 = new RARef(split[0]);
+                }
+                else
+                {
+                    raref2 = new RARef(split[1]);
+                }
+
+                CellAddr ulCa = raref1.Addr(col - 1, row - 1);
+                CellAddr lrCa = raref2.Addr(col - 1, row - 1);
+                // This also updates support sets, but that's useless, because 
+                // they will subsequently be reset by RebuildSupportGraph
+                sheet.SetArrayFormula(cell, col - 1, row - 1, ulCa, lrCa);
+            }
+            else
+            { // One-cell formula, or constant
+                sheet[col - 1, row - 1] = cell;
+            }
+        }
+        cellreader.Close();
+        return cellCount;
+    }
+
+    private int ParseSheet(XmlReader sheetreader,
+                           Workbook wb,
+                           Sheet sheet,
+                           IDictionary<string, Cell> cellParsingCache)
+    {
+        int cellCount = 0;
+        if (sheetreader.ReadToFollowing("Table"))
+        {
+            int row = 0;
+            using (XmlReader rowreader = sheetreader.ReadSubtree())
+            {
+                while (rowreader.ReadToFollowing("Row"))
+                {
+                    string rowindexstr = rowreader.GetAttribute("ss:Index");
+                    if (rowindexstr != null)
+                    {
+                        if (!int.TryParse(rowindexstr, out row))
+                        {
+                            row = 0;
+                        }
+                    }
+                    else
+                    {
+                        row++;
+                    }
+                    cellCount += ParseRow(rowreader, wb, sheet, row, cellParsingCache);
+                }
+            }
+        }
+        return cellCount;
+    }
+
+    private int ParseSheets(XmlTextReader reader,
+                            Workbook wb,
+                            IDictionary<string, Cell> cellParsingCache)
+    {
+        int cellCount = 0;
+        while (reader.ReadToFollowing("Worksheet"))
+        {
+            string sheetname = reader.GetAttribute("ss:Name");
+            using (XmlReader sheetreader = reader.ReadSubtree())
+            {
+                Sheet sheet = wb[sheetname];
+                cellCount += ParseSheet(sheetreader, wb, sheet, cellParsingCache);
+            }
+        }
+        return cellCount;
+    }
+
+    private bool isXMLSS(XmlTextReader reader)
+    {
+        return reader.NodeType == XmlNodeType.Element &&
+               reader.Name == "Workbook" &&
+               reader.GetAttribute("xmlns") != null;
+    }
+
+    private void ParseWorkBook(XmlTextReader reader, Workbook wb)
+    {
+        int cellCount = 0;
+        // To help find and share cells with identical R1C1 representation:
+        IDictionary<string, Cell> cellParsingCache = new Dictionary<string, Cell>();
+        while (reader.Read())
+        {
+            if (isXMLSS(reader))
+            {
+                cellCount += ParseSheets(reader, wb, cellParsingCache);
+            }
+        }
+        wb.RebuildSupportGraph();
+        wb.ResetVolatileSet();
+        Console.Write("Read XMLSS, {0} cells of which {1} unique ", cellCount, cellParsingCache.Count);
+    }
+
+    private Workbook MakeEmptySheets(XmlTextReader reader)
+    {
+        Workbook wb = null;
+        while (reader.Read())
+        {
+            if (isXMLSS(reader))
+            {
+                wb = new Workbook();
+                while (reader.ReadToFollowing("Worksheet"))
+                {
+                    string sheetname = reader.GetAttribute("ss:Name");
+                    using (XmlReader sheetreader = reader.ReadSubtree())
+                    {
+                        int cols = _minCols, rows = _minRows; // In the sheet
+                        if (sheetreader.ReadToFollowing("Table"))
+                        {
+                            // Try to use Expanded{Row,Column}Count although not required
+                            string tmpstr = sheetreader.GetAttribute("ss:ExpandedRowCount");
+                            if (int.TryParse(tmpstr, out rows))
+                            {
+                                rows = Math.Max(rows, _minRows);
+                            }
+                            tmpstr = sheetreader.GetAttribute("ss:ExpandedColumnCount");
+                            if (int.TryParse(tmpstr, out cols))
+                            {
+                                cols = Math.Max(cols, _minCols);
+                            }
+                        }
+                        new Sheet(wb, sheetname, cols, rows);
+                    }
+                }
+            }
+        }
+        return wb;
+    }
+
+    public override Workbook Read(string filename)
+    {
+        XmlTextReader reader = null;
+        Workbook wb = null;
+        Stopwatch watch = new Stopwatch();
+        watch.Reset();
+        watch.Start();
+        try
+        {
+            reader = new XmlTextReader(filename)
+            {
+                WhitespaceHandling = WhitespaceHandling.None
+            };
+            wb = MakeEmptySheets(reader);
+            reader.Close();
+            if (wb != null)
+            {
+                reader = new XmlTextReader(filename)
+                {
+                    WhitespaceHandling = WhitespaceHandling.None
+                };
+                ParseWorkBook(reader, wb);
+            }
+        }
+        finally
+        {
+            reader?.Close();
+        }
+        watch.Stop();
+        Console.WriteLine("in {0} ms", watch.ElapsedMilliseconds);
+        return wb;
+    }
+}
